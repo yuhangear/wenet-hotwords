@@ -1,74 +1,106 @@
-// Copyright (c) 2021 Mobvoi Inc (Binbin Zhang)
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2020 Mobvoi Inc. All Rights Reserved.
+// Author: binbinzhang@mobvoi.com (Binbin Zhang)
 
-
-#ifndef DECODER_CTC_WFST_BEAM_SEARCH_H_
-#define DECODER_CTC_WFST_BEAM_SEARCH_H_
+#ifndef DECODER_CTC_PREFIX_BEAM_SEARCH_H_
+#define DECODER_CTC_PREFIX_BEAM_SEARCH_H_
 
 #include <memory>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "decoder/context_graph.h"
 #include "decoder/search_interface.h"
-#include "kaldi/decoder/lattice-faster-online-decoder.h"
 #include "utils/utils.h"
 
 namespace wenet {
 
-class DecodableTensorScaled : public kaldi::DecodableInterface {
- public:
-  explicit DecodableTensorScaled(float scale = 1.0) : scale_(scale) { Reset(); }
-
-  void Reset();
-  int32 NumFramesReady() const override { return num_frames_ready_; }
-  bool IsLastFrame(int32 frame) const override;
-  float LogLikelihood(int32 frame, int32 index) override;
-  int32 NumIndices() const override;
-  void AcceptLoglikes(const std::vector<float>& logp);
-  void SetFinish() { done_ = true; }
-
- private:
-  int num_frames_ready_ = 0;
-  float scale_ = 1.0;
-  bool done_ = false;
-  std::vector<float> logp_;
+struct CtcPrefixBeamSearchOptions {
+  int blank = 0;  // blank id
+  int first_beam_size = 10;
+  int second_beam_size = 10;
 };
 
-// LatticeFasterDecoderConfig has the following key members
-// beam: decoding beam
-// max_active: Decoder max active states
-// lattice_beam: Lattice generation beam
-struct CtcWfstBeamSearchOptions : public kaldi::LatticeFasterDecoderConfig {
-  float acoustic_scale = 1.0;
-  float nbest = 10;
-  // When blank score is greater than this thresh, skip the frame in viterbi
-  // search
-  float blank_skip_thresh = 0.98;
+struct PrefixScore {
+  float s = -kFloatMax;               // blank ending score
+  float ns = -kFloatMax;              // none blank ending score
+  float v_s = -kFloatMax;             // viterbi blank ending score
+  float v_ns = -kFloatMax;            // viterbi none blank ending score
+  float cur_token_prob = -kFloatMax;  // prob of current token
+  std::vector<int> times_s;           // times of viterbi blank path
+  std::vector<int> times_ns;          // times of viterbi none blank path
+
+  float score() const { return LogAdd(s, ns); }
+  float viterbi_score() const { return v_s > v_ns ? v_s : v_ns; }
+  const std::vector<int>& times() const {
+    return v_s > v_ns ? times_s : times_ns;
+  }
+
+  bool has_context = false;
+  int context_state = 0;
+  float context_score = 0;
+  std::vector<int> start_boundaries;
+  std::vector<int> end_boundaries;
+
+  void CopyContext(const PrefixScore& prefix_score) {
+    context_state = prefix_score.context_state;
+    context_score = prefix_score.context_score;
+    start_boundaries = prefix_score.start_boundaries;
+    end_boundaries = prefix_score.end_boundaries;
+  }
+
+  void UpdateContext(const std::shared_ptr<ContextGraph>& context_graph,
+                     const PrefixScore& prefix_score, int word_id,
+                     int prefix_len) {
+    this->CopyContext(prefix_score);
+
+    float score = 0;
+    bool is_start_boundary = false;
+    bool is_end_boundary = false;
+
+    context_state =
+        context_graph->GetNextState(prefix_score.context_state, word_id, &score,
+                                    &is_start_boundary, &is_end_boundary);
+
+    context_score += score;
+    if (is_start_boundary) start_boundaries.emplace_back(prefix_len);
+    if (is_end_boundary) end_boundaries.emplace_back(prefix_len);
+  }
+
+  float total_score() const { return score() + context_score; }
 };
 
-class CtcWfstBeamSearch : public SearchInterface {
+struct PrefixHash {
+  size_t operator()(const std::vector<int>& prefix) const {
+    size_t hash_code = 0;
+    // here we use KB&DR hash code
+    for (int id : prefix) {
+      hash_code = id + 31 * hash_code;
+    }
+    return hash_code;
+  }
+};
+
+class CtcPrefixBeamSearch : public SearchInterface {
  public:
-  explicit CtcWfstBeamSearch(
-      const fst::Fst<fst::StdArc>& fst, const CtcWfstBeamSearchOptions& opts,
-      const std::shared_ptr<ContextGraph>& context_graph);
+  explicit CtcPrefixBeamSearch(
+      const CtcPrefixBeamSearchOptions& opts,
+      const std::shared_ptr<ContextGraph>& context_graph = nullptr);
+
   void Search(const std::vector<std::vector<float>>& logp) override;
   void Reset() override;
   void FinalizeSearch() override;
-  SearchType Type() const override { return SearchType::kWfstBeamSearch; }
-  // For CTC prefix beam search, both inputs and outputs are hypotheses_
+  SearchType Type() const override { return SearchType::kPrefixBeamSearch; }
+  void UpdateOutputs(const std::pair<std::vector<int>, PrefixScore>& prefix);
+  void UpdateHypotheses(
+      const std::vector<std::pair<std::vector<int>, PrefixScore>>& hpys);
+  void UpdateFinalContext();
+
+  const std::vector<float>& viterbi_likelihood() const {
+    return viterbi_likelihood_;
+  }
   const std::vector<std::vector<int>>& Inputs() const override {
-    return inputs_;
+    return hypotheses_;
   }
   const std::vector<std::vector<int>>& Outputs() const override {
     return outputs_;
@@ -77,27 +109,24 @@ class CtcWfstBeamSearch : public SearchInterface {
   const std::vector<std::vector<int>>& Times() const override { return times_; }
 
  private:
-  // Sub one and remove <blank>
-  void ConvertToInputs(const std::vector<int>& alignment,
-                       std::vector<int>* input,
-                       std::vector<int>* time = nullptr);
-  void RemoveContinuousTags(std::vector<int>* output);
+  int abs_time_step_ = 0;
 
-  int num_frames_ = 0;
-  std::vector<int> decoded_frames_mapping_;
-
-  int last_best_ = 0;  // last none blank best id
-  std::vector<float> last_frame_prob_;
-  bool is_last_frame_blank_ = false;
-  std::vector<std::vector<int>> inputs_, outputs_;
+  // N-best list and corresponding likelihood_, in sorted order
+  std::vector<std::vector<int>> hypotheses_;
   std::vector<float> likelihood_;
+  std::vector<float> viterbi_likelihood_;
   std::vector<std::vector<int>> times_;
-  DecodableTensorScaled decodable_;
-  kaldi::LatticeFasterOnlineDecoder decoder_;
-  std::shared_ptr<ContextGraph> context_graph_;
-  const CtcWfstBeamSearchOptions& opts_;
+
+  std::unordered_map<std::vector<int>, PrefixScore, PrefixHash> cur_hyps_;
+  std::shared_ptr<ContextGraph> context_graph_ = nullptr;
+  // Outputs contain the hypotheses_ and tags like: <context> and </context>
+  std::vector<std::vector<int>> outputs_;
+  const CtcPrefixBeamSearchOptions& opts_;
+
+ public:
+  WENET_DISALLOW_COPY_AND_ASSIGN(CtcPrefixBeamSearch);
 };
 
 }  // namespace wenet
 
-#endif  // DECODER_CTC_WFST_BEAM_SEARCH_H_
+#endif  // DECODER_CTC_PREFIX_BEAM_SEARCH_H_
