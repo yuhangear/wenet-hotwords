@@ -1,5 +1,5 @@
 # compile wenet.proto
-set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/grpc")
 add_custom_command(
   OUTPUT  ${PROTO_DIR}/wenet.pb.cc
           ${PROTO_DIR}/wenet.pb.h
@@ -20,4 +20,4 @@ add_library(wenet_grpc STATIC
   wenet.pb.cc
   wenet.grpc.pb.cc
 )
-target_link_libraries(wenet_grpc PUBLIC grpc++ grpc++_reflection decoder)
+target_link_libraries(wenet_grpc PUBLIC grpc++ grpc++_reflection decoder frontend)

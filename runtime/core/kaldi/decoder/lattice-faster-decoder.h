@@ -4,7 +4,6 @@
 //           2013-2014  Johns Hopkins University (Author: Daniel Povey)
 //                2014  Guoguo Chen
 //                2018  Zhehuai Chen
-//                2021  Binbin Zhang, Zhendong Peng
 
 // See ../../COPYING for clarification regarding multiple authors
 //
@@ -54,7 +53,6 @@ struct LatticeFasterDecoderConfig {
   // a very important parameter.  It affects the algorithm that prunes the
   // tokens as we go.
   BaseFloat prune_scale;
-  BaseFloat length_penalty;  // for balancing the del/ins ratio, suggested -3.0
 
   // Most of the options inside det_opts are not actually queried by the
   // LatticeFasterDecoder class itself, but by the code that calls it, for
@@ -70,8 +68,7 @@ struct LatticeFasterDecoderConfig {
         determinize_lattice(true),
         beam_delta(0.5),
         hash_ratio(2.0),
-        prune_scale(0.1),
-        length_penalty(0.0) {}
+        prune_scale(0.1) {}
   void Register(OptionsItf *opts) {
     det_opts.Register(opts);
     opts->Register("beam", &beam,

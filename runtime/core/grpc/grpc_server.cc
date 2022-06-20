@@ -34,21 +34,21 @@ GrpcConnectionHandler::GrpcConnectionHandler(
       decode_resource_(std::move(decode_resource)) {}
 
 void GrpcConnectionHandler::OnSpeechStart() {
-  LOG(INFO) << "Received speech start signal, start reading speech";
+  LOG(INFO) << "Recieved speech start signal, start reading speech";
   got_start_tag_ = true;
   response_->set_status(Response::ok);
   response_->set_type(Response::server_ready);
   stream_->Write(*response_);
   feature_pipeline_ = std::make_shared<FeaturePipeline>(*feature_config_);
-  decoder_ = std::make_shared<AsrDecoder>(feature_pipeline_, decode_resource_,
-                                          *decode_config_);
+  decoder_ = std::make_shared<AsrDecoder>(
+      feature_pipeline_, decode_resource_, *decode_config_);
   // Start decoder thread
   decode_thread_ = std::make_shared<std::thread>(
       &GrpcConnectionHandler::DecodeThreadFunc, this);
 }
 
 void GrpcConnectionHandler::OnSpeechEnd() {
-  LOG(INFO) << "Received speech end signal";
+  LOG(INFO) << "Recieved speech end signal";
   CHECK(feature_pipeline_ != nullptr);
   feature_pipeline_->set_input_finished();
   got_end_tag_ = true;
@@ -77,13 +77,18 @@ void GrpcConnectionHandler::OnFinish() {
 
 void GrpcConnectionHandler::OnSpeechData() {
   // Read binary PCM data
-  const int16_t* pcm_data =
+  const int16_t* pdata =
       reinterpret_cast<const int16_t*>(request_->audio_data().c_str());
   int num_samples = request_->audio_data().length() / sizeof(int16_t);
-  VLOG(2) << "Received " << num_samples << " samples";
+  std::vector<float> pcm_data(num_samples);
+  for (int i = 0; i < num_samples; i++) {
+    pcm_data[i] = static_cast<float>(*pdata);
+    pdata++;
+  }
+  VLOG(2) << "Recieved " << num_samples << " samples";
   CHECK(feature_pipeline_ != nullptr);
   CHECK(decoder_ != nullptr);
-  feature_pipeline_->AcceptWaveform(pcm_data, num_samples);
+  feature_pipeline_->AcceptWaveform(pcm_data);
 }
 
 void GrpcConnectionHandler::SerializeResult(bool finish) {
@@ -122,7 +127,7 @@ void GrpcConnectionHandler::DecodeThreadFunc() {
       decoder_->Rescoring();
       SerializeResult(true);
       OnFinalResult();
-      // If it's not continuous decoding, continue to do next recognition
+      // If it's not continuous decoidng, continue to do next recognition
       // otherwise stop the recognition
       if (continuous_decoding_) {
         decoder_->ResetContinuousDecoding();
