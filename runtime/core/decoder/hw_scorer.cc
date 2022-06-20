@@ -1,4 +1,4 @@
-#include "decoder/hw_scorer.h"
+#include "hw_scorer.h"
 #include <iostream>
 
 using namespace std;
@@ -51,14 +51,22 @@ namespace victor {
 
         all_nodes.push_back(&root_node);
 
+
+        //Step1:Building the tire tree by adding hotword one by one
         for (int i = 0; i < hotwords.size(); i++)
         {
             add_hotword(hotwords[i]);
-        }
+        }  
 
 
-
+        //Step2:reroute the fail path in tire tree using Aho-Corasick algorithm
+        //
         BFS_re_route_failpath();
+        
+
+        //Step3: Gather all the possible next node from the node and store them in the unordered map in this node 
+        //This step is actually optional.
+        //It can speed up inference speec at the cost of consuming more memory but i think it is worthy. 
 
         for (int i = 0; i < all_nodes.size(); i++)
         {
@@ -70,6 +78,15 @@ namespace victor {
 
 
 
+    HWScorer::~HWScorer()
+    {
+        for (int i = 1; i < all_nodes.size(); i++)  //don't need to delete root node
+        {
+            delete all_nodes[i];
+
+        }
+
+    }
 
 
 
@@ -133,6 +150,7 @@ namespace victor {
 
     void HWScorer::BFS_re_route_failpath(void)
     {
+
         vector<Node*> children_nodes = { &root_node };
         vector<Node*> temp_children_nodes = { };
 

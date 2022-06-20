@@ -1,18 +1,6 @@
-// Copyright (c) 2020 Mobvoi Inc (Binbin Zhang, Di Wu)
-//               2022 Binbin Zhang (binbzha@qq.com)
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
+// Copyright 2020 Mobvoi Inc. All Rights Reserved.
+// Author: binbinzhang@mobvoi.com (Binbin Zhang)
+//         di.wu@mobvoi.com (Di Wu)
 
 #ifndef DECODER_ASR_DECODER_H_
 #define DECODER_ASR_DECODER_H_
@@ -49,10 +37,10 @@ struct DecodeOptions {
   // right_to_left_score * reverse_weight
   // Please note the concept of ctc_scores in the following two search
   // methods are different.
-  // For CtcPrefixBeamSearch, it's a sum(prefix) score + context score
-  // For CtcWfstBeamSearch, it's a max(viterbi) path score + context score
+  // For CtcPrefixBeamSearch, it's a sum(prefix) score
+  // For CtcWfstBeamSearch, it's a max(viterbi) path score
   // So we should carefully set ctc_weight according to the search methods.
-  float ctc_weight = 0.5;
+  float ctc_weight = 0.0;
   float rescoring_weight = 1.0;
   float reverse_weight = 0.0;
   CtcEndpointConfig ctc_endpoint_config;
@@ -94,6 +82,7 @@ struct DecodeResource {
   std::shared_ptr<fst::Fst<fst::StdArc>> fst = nullptr;
   std::shared_ptr<fst::SymbolTable> unit_table = nullptr;
   std::shared_ptr<ContextGraph> context_graph = nullptr;
+  std::string context_path = "";
   std::shared_ptr<PostProcessor> post_processor = nullptr;
 };
 
@@ -149,7 +138,6 @@ class AsrDecoder {
   // For continuous decoding
   int num_frames_ = 0;
   int global_frame_offset_ = 0;
-  const int time_stamp_gap_ = 100;  // timestamp gap between words in a sentence
 
   std::unique_ptr<SearchInterface> searcher_;
   std::unique_ptr<CtcEndpoint> ctc_endpointer_;

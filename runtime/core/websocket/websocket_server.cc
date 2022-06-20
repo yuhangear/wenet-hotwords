@@ -17,10 +17,12 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "boost/json/src.hpp"
 #include "utils/log.h"
-
+#include "utils/string.h"
 namespace wenet {
 
 namespace beast = boost::beast;          // from <boost/beast.hpp>
@@ -46,8 +48,8 @@ void ConnectionHandler::OnSpeechStart() {
   ws_.text(true);
   ws_.write(asio::buffer(json::serialize(rv)));
   feature_pipeline_ = std::make_shared<FeaturePipeline>(*feature_config_);
-  decoder_ = std::make_shared<AsrDecoder>(feature_pipeline_, decode_resource_,
-                                          *decode_config_);
+  decoder_ = std::make_shared<AsrDecoder>(
+      feature_pipeline_, decode_resource_, *decode_config_);
   // Start decoder thread
   decode_thread_ =
       std::make_shared<std::thread>(&ConnectionHandler::DecodeThreadFunc, this);
@@ -87,11 +89,16 @@ void ConnectionHandler::OnFinish() {
 void ConnectionHandler::OnSpeechData(const beast::flat_buffer& buffer) {
   // Read binary PCM data
   int num_samples = buffer.size() / sizeof(int16_t);
+  std::vector<float> pcm_data(num_samples);
+  const int16_t* pdata = static_cast<const int16_t*>(buffer.data().data());
+  for (int i = 0; i < num_samples; i++) {
+    pcm_data[i] = static_cast<float>(*pdata);
+    pdata++;
+  }
   VLOG(2) << "Received " << num_samples << " samples";
   CHECK(feature_pipeline_ != nullptr);
   CHECK(decoder_ != nullptr);
-  const auto* pcm_data = static_cast<const int16_t*>(buffer.data().data());
-  feature_pipeline_->AcceptWaveform(pcm_data, num_samples);
+  feature_pipeline_->AcceptWaveform(pcm_data);
 }
 
 std::string ConnectionHandler::SerializeResult(bool finish) {
@@ -132,7 +139,7 @@ void ConnectionHandler::DecodeThreadFunc() {
         decoder_->Rescoring();
         std::string result = SerializeResult(true);
         OnFinalResult(result);
-        // If it's not continuous decoding, continue to do next recognition
+        // If it's not continuous decoidng, continue to do next recognition
         // otherwise stop the recognition
         if (continuous_decoding_) {
           decoder_->ResetContinuousDecoding();
@@ -248,11 +255,38 @@ void WebSocketServer::Start() {
   try {
     auto const address = asio::ip::make_address("0.0.0.0");
     tcp::acceptor acceptor{ioc_, {address, static_cast<uint16_t>(port_)}};
+	
+	struct stat hw_filestats_check;
+	struct stat hw_filestats_check_old;
+	if (lstat((decode_resource_->context_path).c_str(), &hw_filestats_check_old) == 0) {
+
+    }
+	
+	
     for (;;) {
-      // This will receive the new connection
+	  // This will receive the new connection
       tcp::socket socket{ioc_};
       // Block until we get a connection
       acceptor.accept(socket);
+		if (lstat((decode_resource_->context_path).c_str(), &hw_filestats_check) == 0) {
+        if ((hw_filestats_check.st_size != hw_filestats_check_old.st_size) && (hw_filestats_check.st_mtime != hw_filestats_check_old.st_mtime)) {
+			//the file has been changed reload
+			hw_filestats_check_old = hw_filestats_check;
+			LOG(INFO) << "context list is changed reloading from" << decode_resource_->context_path;
+			std::vector<std::string> contexts;
+			std::ifstream infile(decode_resource_->context_path);
+			std::string context;
+			while (getline(infile, context)) {
+				contexts.emplace_back(Trim(context));
+			}
+			decode_resource_->context_graph->BuildContextGraph(contexts, decode_resource_->symbol_table);
+			} else {
+		LOG(INFO) << "context list is not changed";
+        }
+      }
+
+
+
       // Launch the session, transferring ownership of the socket
       ConnectionHandler handler(std::move(socket), feature_config_,
                                 decode_config_, decode_resource_);
