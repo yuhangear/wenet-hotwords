@@ -98,6 +98,15 @@ The main process of wenET model training deployment and testing will be introduc
      ```
      #
      ./multi_pro_test.sh --test_data ntu-conversation
+     
+     ```
+     
+     
+   
+   + ```
+     #In the previous script, the following parameters were used to control the hot word list and hot word score
+     --context_path $context_path \
+     --context_score 3 \
      ```
    
      
