@@ -70,7 +70,7 @@ The main process of wenET model training deployment and testing will be introduc
    + cd examples/release/s0
 
    + Prepare the test audio file directory
-   
+
      + We need to prepare Kaldi Formated (wav. scp text utt2spk spk2utt) files
      + If there is a "segments" file, we need to cut the wav file and reestablish the wav.scp and delete the segments
    
@@ -85,7 +85,7 @@ The main process of wenET model training deployment and testing will be introduc
        
 
    + The decoding mode is based on the server client
-   
+
      + ```
        #Start the server program
        ./server_start.sh
